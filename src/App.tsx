@@ -31,19 +31,36 @@ export default function App() {
       setDirectJoinCode(codeParam);
     }
 
-    // 2. Check remembered student
-    const remembered = storageService.getRememberedStudent();
-    if (remembered) {
-      setLoggedStudent(remembered);
-      setCurrentView('student_portal');
+    // 2. Check last active role & sessions to restore state automatically
+    const lastRole = storageService.getLastActiveRole();
+
+    // Explicit URL role param takes highest priority
+    if (roleParam === 'teacher') {
+      const teacherInfo: TeacherUser = {
+        id: 't-01',
+        name: 'Thầy Nguyễn Văn Huy',
+        email: 'huy.nguyen@kimdong.edu.vn',
+        role: 'teacher'
+      };
+      storageService.setTeacherSession(true);
+      setLoggedTeacher(teacherInfo);
+      setCurrentView('teacher_portal');
       return;
     }
 
-    // 3. Check role param
     if (roleParam === 'student' || codeParam) {
-      setCurrentView('student_login');
-    } else if (roleParam === 'teacher') {
-      // Default sample teacher
+      const remembered = storageService.getStudentSession() || storageService.getRememberedStudent();
+      if (remembered) {
+        setLoggedStudent(remembered);
+        setCurrentView('student_portal');
+      } else {
+        setCurrentView('student_login');
+      }
+      return;
+    }
+
+    // Restore last active role
+    if (lastRole === 'teacher' && storageService.isTeacherLoggedIn()) {
       setLoggedTeacher({
         id: 't-01',
         name: 'Thầy Nguyễn Văn Huy',
@@ -51,13 +68,33 @@ export default function App() {
         role: 'teacher'
       });
       setCurrentView('teacher_portal');
-    } else {
-      setCurrentView('role_select');
+      return;
     }
+
+    if (lastRole === 'student') {
+      const remembered = storageService.getStudentSession() || storageService.getRememberedStudent();
+      if (remembered) {
+        setLoggedStudent(remembered);
+        setCurrentView('student_portal');
+        return;
+      }
+    }
+
+    // Default to remembered student session if active
+    const activeStudent = storageService.getStudentSession();
+    if (activeStudent) {
+      setLoggedStudent(activeStudent);
+      setCurrentView('student_portal');
+      return;
+    }
+
+    // Default: role_select
+    setCurrentView('role_select');
   }, []);
 
   // Handlers for Student
   const handleStudentLoginSuccess = (student: Student) => {
+    storageService.setStudentSession(student, true);
     setLoggedStudent(student);
     setCurrentView('student_portal');
   };
@@ -70,11 +107,13 @@ export default function App() {
 
   // Handlers for Teacher
   const handleTeacherLoginSuccess = (teacher: TeacherUser) => {
+    storageService.setTeacherSession(true);
     setLoggedTeacher(teacher);
     setCurrentView('teacher_portal');
   };
 
   const handleTeacherLogout = () => {
+    storageService.setTeacherSession(false);
     setLoggedTeacher(null);
     setCurrentView('role_select');
   };

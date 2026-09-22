@@ -10,20 +10,50 @@ interface StudentLoginProps {
 }
 
 export const StudentLogin: React.FC<StudentLoginProps> = ({ onSuccess, onBack, directJoinCode }) => {
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [savedStudents, setSavedStudents] = useState<Student[]>([]);
   const [fullName, setFullName] = useState('');
   const [studentCode, setStudentCode] = useState('');
   const [selectedClass, setSelectedClass] = useState('5/9');
   const [rememberDevice, setRememberDevice] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
-  const [classes, setClasses] = useState<SchoolClass[]>([]);
 
   useEffect(() => {
     const clsList = storageService.getClasses();
     setClasses(clsList);
-    if (clsList.length > 0 && !selectedClass) {
+
+    const saved = storageService.getSavedStudentsList();
+    setSavedStudents(saved);
+
+    const last = storageService.getLastStudent();
+    if (last) {
+      setFullName(last.fullName);
+      setStudentCode(last.studentCode);
+      setSelectedClass(last.className);
+    } else if (saved.length > 0) {
+      setFullName(saved[0].fullName);
+      setStudentCode(saved[0].studentCode);
+      setSelectedClass(saved[0].className);
+    } else if (clsList.length > 0 && !selectedClass) {
       setSelectedClass(clsList[0].name);
     }
   }, []);
+
+  const handleQuickLogin = (student: Student) => {
+    if (student.status === 'locked') {
+      setErrorMessage('Tài khoản này tạm thời đang bị khóa. Em hãy liên hệ thầy cô chủ nhiệm để mở lại nhé!');
+      return;
+    }
+    storageService.setStudentSession(student, true);
+    onSuccess(student);
+  };
+
+  const handleRemoveSaved = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    storageService.removeSavedStudentFromDevice(id);
+    const updated = savedStudents.filter((s) => s.id !== id);
+    setSavedStudents(updated);
+  };
 
   const handleLogin = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -53,7 +83,7 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({ onSuccess, onBack, d
       return;
     }
 
-    // Save session
+    // Save session & device memory
     storageService.setStudentSession(student, rememberDevice);
     onSuccess(student);
   };
@@ -107,6 +137,61 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({ onSuccess, onBack, d
           <div className="mb-4 p-3.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs sm:text-sm rounded-2xl flex items-start gap-2.5">
             <AlertCircle className="w-5 h-5 shrink-0 text-rose-500 mt-0.5" />
             <div>{errorMessage}</div>
+          </div>
+        )}
+
+        {/* Saved Students Quick Login */}
+        {savedStudents.length > 0 && (
+          <div className="mb-5 p-3.5 bg-emerald-50/90 border border-emerald-200 rounded-2xl">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-black text-emerald-900 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                Học sinh đã lưu trên máy (Đăng nhập 1 chạm):
+              </span>
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
+                {savedStudents.length} tài khoản
+              </span>
+            </div>
+            <div className="space-y-2">
+              {savedStudents.map((std) => (
+                <div
+                  key={std.id}
+                  onClick={() => handleQuickLogin(std)}
+                  className="flex items-center justify-between p-2.5 bg-white hover:bg-emerald-100/60 rounded-xl border border-emerald-100 shadow-2xs transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-emerald-600 text-white font-black text-xs flex items-center justify-center">
+                      {std.fullName.slice(0, 1)}
+                    </div>
+                    <div>
+                      <div className="font-extrabold text-slate-800 text-xs sm:text-sm group-hover:text-emerald-700">
+                        {std.fullName}
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-medium">
+                        Mã: <strong className="font-mono text-emerald-700">{std.studentCode}</strong> • Lớp: <strong>{std.className}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleQuickLogin(std)}
+                      className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-2xs transition-all cursor-pointer"
+                    >
+                      Vào học ➔
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleRemoveSaved(e, std.id)}
+                      title="Xóa khỏi danh sách đã lưu"
+                      className="p-1 text-slate-300 hover:text-rose-500 rounded-md transition-colors cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

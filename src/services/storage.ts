@@ -26,7 +26,10 @@ const STORAGE_KEYS = {
   NOTIFICATIONS: 'edu_notifications_v1',
   SETTINGS: 'edu_settings_v1',
   STUDENT_SESSION: 'edu_student_session_v1',
-  TEACHER_SESSION: 'edu_teacher_session_v1'
+  TEACHER_SESSION: 'edu_teacher_session_v1',
+  LAST_ACTIVE_ROLE: 'edu_last_active_role_v1',
+  SAVED_STUDENTS_LIST: 'edu_saved_students_list_v1',
+  LAST_STUDENT: 'edu_last_student_v1'
 };
 
 type Listener = (event: { type: string; payload?: any }) => void;
@@ -705,6 +708,63 @@ class StorageService {
   }
 
   // --- AUTH SESSIONS ---
+  public getLastActiveRole(): 'student' | 'teacher' | null {
+    if (typeof window === 'undefined') return null;
+    return (localStorage.getItem(STORAGE_KEYS.LAST_ACTIVE_ROLE) as 'student' | 'teacher') || null;
+  }
+
+  public setLastActiveRole(role: 'student' | 'teacher' | null) {
+    if (typeof window === 'undefined') return;
+    if (role) {
+      localStorage.setItem(STORAGE_KEYS.LAST_ACTIVE_ROLE, role);
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.LAST_ACTIVE_ROLE);
+    }
+  }
+
+  public getSavedStudentsList(): Student[] {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.SAVED_STUDENTS_LIST);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  public saveStudentToDevice(student: Student) {
+    if (typeof window === 'undefined') return;
+    try {
+      const list = this.getSavedStudentsList();
+      const filtered = list.filter(
+        (s) => s.id !== student.id && s.studentCode.toUpperCase() !== student.studentCode.toUpperCase()
+      );
+      filtered.unshift(student);
+      localStorage.setItem(STORAGE_KEYS.SAVED_STUDENTS_LIST, JSON.stringify(filtered.slice(0, 10)));
+      localStorage.setItem(STORAGE_KEYS.LAST_STUDENT, JSON.stringify(student));
+      this.notifyListeners('SAVED_STUDENTS_UPDATED', filtered);
+    } catch (e) {
+      console.warn('Failed to save student to device', e);
+    }
+  }
+
+  public removeSavedStudentFromDevice(studentId: string) {
+    if (typeof window === 'undefined') return;
+    const list = this.getSavedStudentsList().filter((s) => s.id !== studentId);
+    localStorage.setItem(STORAGE_KEYS.SAVED_STUDENTS_LIST, JSON.stringify(list));
+    this.notifyListeners('SAVED_STUDENTS_UPDATED', list);
+  }
+
+  public getLastStudent(): Student | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.LAST_STUDENT);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
   public getStudentSession(): Student | null {
     const raw = localStorage.getItem(STORAGE_KEYS.STUDENT_SESSION);
     return raw ? JSON.parse(raw) : null;
@@ -713,9 +773,10 @@ class StorageService {
   public setStudentSession(student: Student | null, remember = true) {
     if (student) {
       localStorage.setItem(STORAGE_KEYS.STUDENT_SESSION, JSON.stringify(student));
-      if (!remember) {
-        sessionStorage.setItem(STORAGE_KEYS.STUDENT_SESSION, JSON.stringify(student));
+      if (remember) {
+        this.saveStudentToDevice(student);
       }
+      this.setLastActiveRole('student');
     } else {
       localStorage.removeItem(STORAGE_KEYS.STUDENT_SESSION);
       sessionStorage.removeItem(STORAGE_KEYS.STUDENT_SESSION);
@@ -730,6 +791,7 @@ class StorageService {
   public setTeacherSession(loggedIn: boolean) {
     if (loggedIn) {
       localStorage.setItem(STORAGE_KEYS.TEACHER_SESSION, 'true');
+      this.setLastActiveRole('teacher');
     } else {
       localStorage.removeItem(STORAGE_KEYS.TEACHER_SESSION);
     }
@@ -737,11 +799,14 @@ class StorageService {
   }
 
   public getRememberedStudent(): Student | null {
-    return this.getStudentSession();
+    const current = this.getStudentSession();
+    if (current) return current;
+    return this.getLastStudent();
   }
 
   public logoutStudent() {
     this.setStudentSession(null);
+    this.setLastActiveRole(null);
   }
 
   public createAssignment(assignment: Assignment) {

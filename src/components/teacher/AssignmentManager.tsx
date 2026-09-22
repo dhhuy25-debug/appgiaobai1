@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Assignment, SchoolClass, Student, Question, QuestionType } from '../../types';
+import { Assignment, SchoolClass, Student, Question, QuestionType, TargetAudienceType } from '../../types';
 import { storageService } from '../../services/storage';
 import { AssignmentDetailModal } from './AssignmentDetailModal';
+import { AssignmentReviewModal } from './AssignmentReviewModal';
 import { QuestionEditor } from './QuestionEditor';
 import {
   Plus,
@@ -25,7 +26,9 @@ import {
   Sparkles,
   Maximize2,
   Minimize2,
-  ChevronDown
+  ChevronDown,
+  Edit3,
+  Save
 } from 'lucide-react';
 
 interface AssignmentManagerProps {
@@ -49,6 +52,8 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [selectedDetailAssignment, setSelectedDetailAssignment] = useState<Assignment | null>(null);
+  const [reviewAssignment, setReviewAssignment] = useState<Assignment | null>(null);
+  const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
   const [assignmentToDelete, setAssignmentToDelete] = useState<Assignment | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -66,7 +71,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
   const [maxAttempts, setMaxAttempts] = useState<number>(1);
   const [showAnswer, setShowAnswer] = useState<boolean>(true);
   const [autoGrade, setAutoGrade] = useState<boolean>(true);
-  const [targetAudience, setTargetAudience] = useState<'class' | 'group' | 'specific'>('class');
+  const [targetAudience, setTargetAudience] = useState<TargetAudienceType>('class');
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState<string>(() => {
     const d = new Date();
@@ -400,8 +405,72 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
     setTimeout(() => setCopiedLink(null), 2000);
   };
 
-  // Submit Create Assignment
-  const handleCreateAssignment = (e: React.FormEvent) => {
+  // Handle Open Create Modal
+  const handleOpenCreateModal = () => {
+    setEditingAssignment(null);
+    setTitle('');
+    setSubject('Toán');
+    setFormClass(classes[0]?.name || '5/9');
+    setDurationMinutes(20);
+    setNoTimeLimit(false);
+    setMaxAttempts(1);
+    setShowAnswer(true);
+    setAutoGrade(true);
+    setTargetAudience('class');
+    setSelectedStudentIds([]);
+    const d = new Date();
+    d.setDate(d.getDate() + 2);
+    d.setHours(20, 0, 0, 0);
+    setDueDate(d.toISOString().slice(0, 16));
+    setQuestions([
+      {
+        id: `q-${Date.now()}-1`,
+        type: 'single_choice',
+        prompt: '',
+        options: [
+          { id: 'A', text: '' },
+          { id: 'B', text: '' },
+          { id: 'C', text: '' },
+          { id: 'D', text: '' }
+        ],
+        correctAnswer: 'A',
+        explanation: '',
+        points: 2
+      }
+    ]);
+    setExpandedIds({ [`q-${Date.now()}-1`]: true });
+    setIsCreateModalOpen(true);
+  };
+
+  // Handle Open Edit Modal
+  const handleOpenEditModal = (asg: Assignment) => {
+    setEditingAssignment(asg);
+    setTitle(asg.title);
+    setSubject(asg.subject);
+    setFormClass(asg.className);
+    setDueDate(asg.dueDate);
+    setDurationMinutes(asg.durationMinutes || 20);
+    setNoTimeLimit(asg.durationMinutes === 0);
+    setMaxAttempts(asg.maxAttempts || 1);
+    setShowAnswer(asg.showAnswer !== false);
+    setAutoGrade(asg.autoGrade !== false);
+    setTargetAudience(asg.targetAudience || 'class');
+    setSelectedStudentIds(asg.targetStudentIds || []);
+
+    const clonedQuestions: Question[] = JSON.parse(JSON.stringify(asg.questions));
+    setQuestions(clonedQuestions);
+
+    const expMap: Record<string, boolean> = {};
+    clonedQuestions.forEach((q, idx) => {
+      expMap[q.id] = idx === 0;
+    });
+    setExpandedIds(expMap);
+
+    setIsCreateModalOpen(true);
+  };
+
+  // Submit Create or Edit Assignment
+  const handleSubmitAssignment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
       showToast('Vui lòng nhập tên bài tập!');
@@ -444,36 +513,62 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
     }
 
     const matchedCls = classes.find((c) => c.name === formClass);
-    const code = storageService.generateAssignmentCode(subject, formClass);
 
-    const currentSettings = storageService.getSettings();
+    if (editingAssignment) {
+      // UPDATE EXISTING ASSIGNMENT
+      const updatedAssignment: Assignment = {
+        ...editingAssignment,
+        title: title.trim(),
+        subject,
+        classId: matchedCls ? matchedCls.id : editingAssignment.classId,
+        className: formClass,
+        dueDate: dueDate,
+        durationMinutes: noTimeLimit ? 0 : durationMinutes,
+        maxAttempts: maxAttempts,
+        showAnswer: showAnswer,
+        autoGrade: autoGrade,
+        targetAudience: targetAudience,
+        targetStudentIds: targetAudience !== 'class' ? selectedStudentIds : undefined,
+        questions: questions
+      };
 
-    const newAssignment: Assignment = {
-      id: `asg-${Date.now()}`,
-      code,
-      title: title.trim(),
-      subject,
-      classId: matchedCls ? matchedCls.id : `cls-${formClass}`,
-      className: formClass,
-      teacherId: 't-01',
-      teacherName: currentSettings.teacherName || 'Thầy Nguyễn Văn Huy',
-      startDate: new Date().toISOString().slice(0, 16),
-      dueDate: dueDate,
-      durationMinutes: noTimeLimit ? 0 : durationMinutes,
-      maxAttempts: maxAttempts,
-      showAnswer: showAnswer,
-      autoGrade: autoGrade,
-      targetAudience: targetAudience,
-      targetStudentIds: targetAudience !== 'class' ? selectedStudentIds : undefined,
-      questions: questions,
-      status: 'active' as const,
-      createdAt: new Date().toISOString()
-    };
+      storageService.saveAssignment(updatedAssignment);
+      setIsCreateModalOpen(false);
+      setEditingAssignment(null);
+      onRefresh();
+      showToast(`Đã lưu thay đổi bài tập "${title.trim()}" thành công!`);
+    } else {
+      // CREATE NEW ASSIGNMENT
+      const code = storageService.generateAssignmentCode(subject, formClass);
+      const currentSettings = storageService.getSettings();
 
-    storageService.createAssignment(newAssignment);
-    setIsCreateModalOpen(false);
-    onRefresh();
-    showToast(`Đã giao bài tập thành công! Mã: ${code} cho lớp ${formClass}`);
+      const newAssignment: Assignment = {
+        id: `asg-${Date.now()}`,
+        code,
+        title: title.trim(),
+        subject,
+        classId: matchedCls ? matchedCls.id : `cls-${formClass}`,
+        className: formClass,
+        teacherId: 't-01',
+        teacherName: currentSettings.teacherName || 'Thầy Nguyễn Văn Huy',
+        startDate: new Date().toISOString().slice(0, 16),
+        dueDate: dueDate,
+        durationMinutes: noTimeLimit ? 0 : durationMinutes,
+        maxAttempts: maxAttempts,
+        showAnswer: showAnswer,
+        autoGrade: autoGrade,
+        targetAudience: targetAudience,
+        targetStudentIds: targetAudience !== 'class' ? selectedStudentIds : undefined,
+        questions: questions,
+        status: 'active' as const,
+        createdAt: new Date().toISOString()
+      };
+
+      storageService.createAssignment(newAssignment);
+      setIsCreateModalOpen(false);
+      onRefresh();
+      showToast(`Đã giao bài tập thành công! Mã: ${code} cho lớp ${formClass}`);
+    }
   };
 
   const handleConfirmDeleteAssignment = () => {
@@ -521,7 +616,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
 
         <button
           id="btn-open-create-asg"
-          onClick={() => setIsCreateModalOpen(true)}
+          onClick={handleOpenCreateModal}
           className="px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs sm:text-sm shadow-md shadow-indigo-200 transition-all cursor-pointer flex items-center gap-2"
         >
           <Plus className="w-4 h-4 stroke-[3]" />
@@ -642,19 +737,43 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                 </div>
               </div>
 
-              {/* Action buttons */}
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                <button
-                  onClick={() => setSelectedDetailAssignment(asg)}
-                  className="px-4 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>Xem bài nộp</span>
-                </button>
+              {/* Action buttons: Xem lại đề, Chỉnh sửa, Xem bài nộp, Xóa */}
+              <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {/* Xem lại đề bài */}
+                  <button
+                    onClick={() => setReviewAssignment(asg)}
+                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+                    title="Xem lại toàn bộ câu hỏi và đáp án của đề bài"
+                  >
+                    <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Xem lại đề</span>
+                  </button>
+
+                  {/* Chỉnh sửa bài tập */}
+                  <button
+                    onClick={() => handleOpenEditModal(asg)}
+                    className="px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+                    title="Chỉnh sửa câu hỏi, đáp án, thời hạn làm bài"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Chỉnh sửa</span>
+                  </button>
+
+                  {/* Xem bài nộp */}
+                  <button
+                    onClick={() => setSelectedDetailAssignment(asg)}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+                    title="Xem bảng nộp bài và kết quả của học sinh"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Xem bài nộp</span>
+                  </button>
+                </div>
 
                 <button
                   onClick={() => setAssignmentToDelete(asg)}
-                  className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors"
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors"
                   title="Xóa bài tập này"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -664,6 +783,22 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
           );
         })}
       </div>
+
+      {/* Review Assignment Modal */}
+      {reviewAssignment && (
+        <AssignmentReviewModal
+          assignment={reviewAssignment}
+          onClose={() => setReviewAssignment(null)}
+          onEdit={(asg) => {
+            setReviewAssignment(null);
+            handleOpenEditModal(asg);
+          }}
+          onViewSubmissions={(asg) => {
+            setReviewAssignment(null);
+            setSelectedDetailAssignment(asg);
+          }}
+        />
+      )}
 
       {/* Detail Submission Modal */}
       {selectedDetailAssignment && (
@@ -682,20 +817,48 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-5">
               <div>
                 <h3 className="text-xl sm:text-2xl font-black text-slate-800 flex items-center gap-2">
-                  <FileQuestion className="w-6 h-6 text-indigo-600" />
-                  Tạo & Giao Bài Tập Mới
+                  {editingAssignment ? (
+                    <>
+                      <Edit3 className="w-6 h-6 text-indigo-600" />
+                      <span>Chỉnh Sửa Bài Tập Đã Giao</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileQuestion className="w-6 h-6 text-indigo-600" />
+                      <span>Tạo & Giao Bài Tập Mới</span>
+                    </>
+                  )}
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                  Thiết kế đề kiểm tra đa dạng loại câu hỏi, tự động chấm điểm và gửi ngay tới Cổng học sinh
+                  {editingAssignment
+                    ? `Cập nhật câu hỏi, đáp án hoặc thời hạn nộp cho bài "${editingAssignment.title}" (Mã: ${editingAssignment.code})`
+                    : 'Thiết kế đề kiểm tra đa dạng loại câu hỏi, tự động chấm điểm và gửi ngay tới Cổng học sinh'}
                 </p>
               </div>
               <button
-                onClick={() => setIsCreateModalOpen(false)}
+                onClick={() => {
+                  setIsCreateModalOpen(false);
+                  setEditingAssignment(null);
+                }}
                 className="p-2 rounded-2xl hover:bg-slate-100 text-slate-400 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {editingAssignment && (
+              <div className="mb-5 p-3.5 bg-indigo-50 border border-indigo-200 rounded-2xl flex items-center justify-between gap-3 text-xs text-indigo-900">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse" />
+                  <span className="font-semibold">
+                    Đang ở chế độ chỉnh sửa bài tập đã giao. Dữ liệu nộp bài trước đó của học sinh vẫn được bảo toàn an toàn!
+                  </span>
+                </div>
+                <span className="font-mono font-bold bg-white px-2.5 py-1 rounded-xl border border-indigo-200 text-indigo-800 shrink-0">
+                  Mã đề: {editingAssignment.code}
+                </span>
+              </div>
+            )}
 
             {/* QUICK PRESET TEMPLATES BAR */}
             <div className="mb-6 p-3.5 bg-gradient-to-r from-indigo-50/80 via-purple-50/60 to-pink-50/80 rounded-2xl border border-indigo-100 flex flex-wrap items-center justify-between gap-2.5">
@@ -730,7 +893,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
               </div>
             </div>
 
-            <form onSubmit={handleCreateAssignment} className="space-y-5 text-xs sm:text-sm">
+            <form onSubmit={handleSubmitAssignment} className="space-y-5 text-xs sm:text-sm">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
                   <label className="block font-bold text-slate-700 mb-1">Tên bài tập *</label>
@@ -1025,7 +1188,10 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                 <div className="flex items-center gap-3 ml-auto">
                   <button
                     type="button"
-                    onClick={() => setIsCreateModalOpen(false)}
+                    onClick={() => {
+                      setIsCreateModalOpen(false);
+                      setEditingAssignment(null);
+                    }}
                     className="px-5 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer transition-colors"
                   >
                     Hủy bỏ
@@ -1034,8 +1200,17 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                     type="submit"
                     className="px-6 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black shadow-lg shadow-indigo-200 cursor-pointer transition-all active:scale-95 flex items-center gap-2"
                   >
-                    <Check className="w-4 h-4" />
-                    <span>GIAO BÀI TẬP NGAY</span>
+                    {editingAssignment ? (
+                      <>
+                        <Save className="w-4 h-4" />
+                        <span>LƯU CẬP NHẬT BÀI TẬP</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>GIAO BÀI TẬP NGAY</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
